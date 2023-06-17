@@ -18,22 +18,53 @@ app.post("/download", async (req: Request, res: Response) => {
     const { title } = videoInfo.videoDetails;
 
     const timestamp = Date.now();
-    const filePath = `hackathon_videos_from_download_api/${title}_${timestamp}.mp4`;
-    const file = admin.storage().bucket().file(filePath);
+    const baseFileName = `${title}_${timestamp}`;
 
-    const writeStream = file.createWriteStream();
+    // Download video (default)
+    const videoFilePath = `hackathon_videos_from_download_api/${baseFileName}_AV.mp4`;
+    const videoFile = admin.storage().bucket().file(videoFilePath);
+    const videoWriteStream = videoFile.createWriteStream();
 
-    ytdl(url).pipe(writeStream);
+    ytdl(url, { quality: "highest" })
+      .on("error", (error) => {
+        throw new Error(`Error downloading the video: ${error}`);
+      })
+      .pipe(videoWriteStream);
 
-    writeStream.on("error", (error) => {
-      throw new Error(`Error writing the video to Firebase Storage: ${error}`);
-    });
+    // Download audio only
+    const audioFilePath = `hackathon_videos_from_download_api/${baseFileName}_A.mp3`;
+    const audioFile = admin.storage().bucket().file(audioFilePath);
+    const audioWriteStream = audioFile.createWriteStream();
 
-    writeStream.on("finish", () => {
-      res.send(
-        `Video '${title}' has been downloaded and saved to Firebase Storage`
-      );
-    });
+    ytdl(url, { quality: "highestaudio" })
+      .on("error", (error) => {
+        throw new Error(`Error downloading the audio: ${error}`);
+      })
+      .pipe(audioWriteStream);
+
+    const gsVideoURI = `gs://${videoFile.bucket.name}/${videoFilePath}`;
+    const gsAudioURI = `gs://${audioFile.bucket.name}/${audioFilePath}`;
+
+    Promise.all([
+      new Promise((resolve, reject) => {
+        videoWriteStream.on("finish", resolve);
+        videoWriteStream.on("error", reject);
+      }),
+      new Promise((resolve, reject) => {
+        audioWriteStream.on("finish", resolve);
+        audioWriteStream.on("error", reject);
+      }),
+    ])
+      .then(() => {
+        res.json({
+          videoURI: gsVideoURI,
+          audioURI: gsAudioURI,
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+        res.status(500).send("An error occurred while downloading the video");
+      });
   } catch (error) {
     console.error(error);
     res.status(500).send("An error occurred while downloading the video");
