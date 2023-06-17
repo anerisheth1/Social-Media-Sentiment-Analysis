@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "stream-to-array": "^2.3.0"
+  }
+}
